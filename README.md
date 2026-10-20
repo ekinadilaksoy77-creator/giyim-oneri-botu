@@ -1,5 +1,7 @@
 # Giyim Mağazası: Müşteri–Ürün Eşleştirme Botu
 
+# BU BİR TASLAK PROJEDİR VE AI TARAFINDAN ÜRETİLMİŞTİR
+
 **Ders:** İş Zekası ve Veri Madenciliği
 
 Mevcut müşterilerin alışveriş verisinden öğrenip **yeni müşterilere ürün öneren** bir bot.
