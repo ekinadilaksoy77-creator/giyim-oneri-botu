@@ -1,132 +1,133 @@
-# Giyim Mağazası: Müşteri–Ürün Eşleştirme Botu
+# Giyim Mağazası Müşteri–Ürün Eşleştirme Botu
 
-# BU BİR TASLAK PROJEDİR VE AI TARAFINDAN ÜRETİLMİŞTİR
+İş Zekası ve Veri Madenciliği dersi dönem projesi.
 
-**Ders:** İş Zekası ve Veri Madenciliği
+Bir erkek giyim mağazasının 2018–2022 satış verisini analiz eden ve **yeni müşterilere ürün öneren** bir bot geliştirdik. Bot, müşterinin Türkçe yazdığı isteği anlar (ör. "lacivert gömlek, M beden, bütçem 1500"), mevcut müşterilerin alışverişlerinden öğrendiği kalıplara göre ürün önerir ve nedenini açıklar.
 
-Mevcut müşterilerin alışveriş verisinden öğrenip **yeni müşterilere ürün öneren** bir bot.
-Projede hocanın istediği iki parça birlikte çalışır:
+Projede iki bileşen birlikte çalışır:
 
-| Parça | Ne yapar? | Nerede? |
+| Bileşen | Görevi | Dosyalar |
 |---|---|---|
-| **İstatistik / veri madenciliği** | Müşteri segmentasyonu (RFM + k-means), birliktelik kuralları (Apriori), ürün benzerliği (kosinüs), öneri skorları, değerlendirme metrikleri | `src/segmentation.py`, `src/association.py`, `src/recommender.py`, `src/evaluate.py` |
-| **LLM** | Müşterinin Türkçe mesajından tercihi çıkarır (renk, kategori, beden, bütçe) ve önerileri Türkçe açıklar | `src/llm.py` |
+| İstatistik ve veri madenciliği | Müşteri segmentasyonu (RFM + k-means), birliktelik kuralları (Apriori), ürün benzerliği (kosinüs), aylık ciro regresyonu, ANOVA / Kruskal-Wallis, ki-kare, öneri değerlendirmesi | `src/segmentation.py`, `src/association.py`, `src/recommender.py`, `src/istatistik.py`, `src/evaluate.py` |
+| Büyük dil modeli (LLM) | Müşterinin Türkçe mesajından tercihleri çıkarır, önerileri Türkçe açıklar | `src/llm.py` |
 
-> **Tasarım kararı:** Ürünleri LLM **seçmez**. Ürünleri sayısal modeller seçer; LLM yalnızca
-> dili anlar ve sonucu anlatır. Böylece LLM'in uydurma (halüsinasyon) riski düşer ve öneriler ölçülebilir kalır.
+LLM ürün seçmez. Ürünleri sayısal modeller seçer, LLM yalnızca dili anlar ve sonucu anlatır. Bu sayede önerilerde uydurma ürün riski olmaz ve öneri kalitesi ölçülebilir kalır.
 
-## Veri seti
+## Veri
 
-[Clothes Retail Store (Kaggle)](https://www.kaggle.com/datasets/nishchay331/retail-store): kurgusal bir **erkek giyim**
-mağaza zinciri, 2022 yılı satışları. Her satır bir fatura (`bill_id`) içindeki tek ürün kalemidir.
+[Clothes Retail Store (Kaggle)](https://www.kaggle.com/datasets/nishchay331/retail-store) veri seti: kurgusal bir erkek giyim mağaza zinciri, her satır bir faturadaki tek ürün kalemi.
 
-Beklenen sütunlar: `user_id, bill_id, line_item_amount, bill_discount, transaction_date, description,
-inventory_category, colour, size, zone_name, store_name, year`
+| | |
+|---|---|
+| Dosyalar | `data_2018.csv` … `data_2022.csv` |
+| Ham satır | 8.454.383 |
+| Temizlik sonrası satır | 6.396.413 |
+| Müşteri / fatura | 939.187 / 1.846.890 |
 
-**İndirme (Kaggle hesabı gerekir):**
+Veri büyük olduğu için depoda yok. Kaggle'dan indirip CSV dosyalarını `data/raw/` klasörüne koymak gerekir; kod klasördeki tüm CSV'leri okuyup birleştirir.
 
 ```bash
 pip install kaggle
-# Kaggle > Settings > API > "Create New Token" ile kaggle.json'u indir, ~/.kaggle/ içine koy
 kaggle datasets download -d nishchay331/retail-store -p data/raw --unzip
 ```
 
-Ya da siteden elle indirip CSV'leri `data/raw/` klasörüne koy. Birden fazla yıl varsa (2019, 2020, ...) **hepsini** koyabilirsin: kod klasördeki tüm CSV'leri okuyup birleştirir (sütunlar aynı olmalı). Birleştirme, aynı müşterinin yıllar içindeki tekrar alışverişlerini görmemizi sağlar.
+Veri hakkında bilinmesi gerekenler:
+- Veride takım elbise kategorisi yok; mağaza erkek giyim olarak ele alındı.
+- Tutarların para birimi belirtilmemiş, metinlerde "birim" deniyor.
+- Ürün bilgisi çoğu satırda kodlu açıklamada saklı (ör. `MSH ITMSH03378 Chiseled LS Green XL`). Kategori; kategori sütunundan, yoksa açıklamadaki anahtar kelimelerden, yoksa ürün kodu ön ekinden (`MSH` gömlek, `MTR` pantolon vb.) belirlendi. `MSH`, `MTR`, `MDE`, `MBL` ön ekleri örnek satırlarla doğrulandı. `MTS`, `MRG`, `MSS`, `MSW`, `MSO` ön ekleri tahmini eşlemedir (`config.py` içinde `PREFIX_CATEGORY`).
+- Anlamı belirlenemeyen `B` ile başlayan kodlar ile çanta ve ambalaj kalemleri kapsam dışı bırakıldı.
+- Eksik renk ve beden önce açıklama metninden çıkarıldı, bulunamayanlar `NOT CAPTURED` olarak işaretlendi.
 
-`python main.py analyze` çalışınca `outputs/temizleme_raporu.json` içinde **kategorisi belirlenemeyip atılan** en sık ürün türleri de listelenir; önemli bir ürün grubu (örn. kravat) orada görünüyorsa `src/data_loader.py` içindeki `CATEGORY_KEYWORDS` listesine ekle.
-
-**Bilmen gerekenler**
-- Bu veri setinde "takım elbise" kategorisi **yok**; gömlek, eşofman altı, ceket vb. var. Rapordaki işletme tanımını buna göre "erkek giyim mağazası" yap.
-- Tutarların para birimi veri setinde belirtilmiyor; metinlerde "birim" diyoruz, TL varsayma.
-- Çoğu müşteri yalnızca bir kez alışveriş yapmış. Bu yüzden "yeni müşteri / soğuk başlangıç" yaklaşımı bu veriye çok uygun, ama kişiselleştirme gücü sınırlı kalabilir.
-- Ham CSV'nin kategori/renk/beden sütunlarında eksik ve dağınık değerler olabilir; `src/data_loader.py` bunları temizler ve kaç satır attığını raporlar.
-
-## Kurulum
+## Kurulum ve çalıştırma
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+.venv\Scripts\activate             # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env             # LLM kullanacaksan ANTHROPIC_API_KEY'i buraya yaz
+cp .env.example .env               # LLM için ANTHROPIC_API_KEY buraya yazılır (isteğe bağlı)
 ```
-
-## Çalıştırma (adım adım)
 
 ```bash
-python main.py generate-data   # (İsteğe bağlı) gerçek veri yoksa sentetik deneme verisi üretir
-python main.py analyze         # temizleme raporu, grafikler, segmentler, Apriori kuralları -> outputs/
-python main.py evaluate        # öneri kalitesi (zamana göre ayırma) -> outputs/degerlendirme.json
-python main.py chat            # eşleştirme botu
-python -m pytest               # testler
+python main.py analyze        # temizleme raporu, grafikler, segmentler, Apriori kuralları -> outputs/
+python main.py evaluate       # öneri kalitesi (zamana göre ayırma) -> outputs/degerlendirme.json
+python main.py stats          # ciro regresyonu, ANOVA, ki-kare -> outputs/
+python main.py chat           # sohbet botu (çıkış: çık, q veya Ctrl+C)
+python -m pytest              # testler
+python main.py generate-data  # yalnızca kodu denemek için sentetik veri (rapor sonuçları için kullanılmaz)
 ```
 
-`data/raw/` içinde gerçek CSV varsa o kullanılır; yoksa `sentetik_...csv`. Sentetik veri **uydurmadır**, sadece kodu denemek içindir:
-rapordaki sonuçları gerçek veriyle üret.
-
-**Bota yazabileceklerin**
+Bota yazılabilecek örnekler:
 
 ```
-İş için lacivert bir gömlek arıyorum, M beden, bütçem 1500     -> yeni müşteri önerisi
-müşteri U00012                                                  -> kayıtlı müşteri önerisi (kendi ID'nle dene)
-paket gömlek                                                    -> gömlekle birlikte alınan ürünler
-çık
+lacivert gömlek arıyorum, M beden, bütçem 1500   -> yeni müşteri önerisi
+müşteri <user_id>                                 -> kayıtlı müşteri önerisi
+paket kazak                                       -> kazakla birlikte alınan ürünler
 ```
 
-`ANTHROPIC_API_KEY` yoksa bot **kural tabanlı yedek** ile çalışır (anahtar kelimelerle tercih çıkarır, şablonla açıklar).
-Anahtar varsa LLM devreye girer (varsayılan model `claude-sonnet-5-5`, `.env` içinde `LLM_MODEL` ile değiştirilir).
+`ANTHROPIC_API_KEY` tanımlı değilse bot kural tabanlı yedek modda çalışır (anahtar kelimelerle tercih çıkarır, şablonla açıklar). Anahtar varsa LLM devreye girer (varsayılan model `claude-sonnet-5-5`, `.env` içindeki `LLM_MODEL` ile değiştirilebilir). Renkli terminal arayüzü `rich` kütüphanesi kuruluysa açılır, kurulu değilse düz metin arayüzü kullanılır.
 
-## Nasıl çalışıyor?
+## Yöntem
 
-```
-CSV ──► temizleme ──► müşteri özellikleri (RFM + kategori payları)
-                         │
-                         ├─► k-means segmentleri ──────────────┐
-                         ├─► Apriori kuralları (paket önerisi) │
-                         └─► müşteri×ürün matrisi ─► ürün-ürün benzerliği
-                                                               ▼
-                                              Hibrit öneri motoru
-                                                               ▲
-Müşteri mesajı ─► LLM: tercih çıkar ─► Preferences ────────────┘
-                                                               │
-                                       öneri + nedenler ─► LLM: Türkçe açıklama
-```
+1. **Temizleme** (`data_loader.py`): geçersiz tutarları ve ürün olmayan kalemleri eler, kategori/renk/beden bilgisini tamamlar. Ürün = kategori + renk (ör. `SHIRTS | NAVY`).
+2. **Özellikler** (`features.py`): her müşteri için son alışverişten bu yana geçen gün, fatura sayısı, toplam harcama ve harcamanın kategorilere dağılımı (RFM + kategori payları).
+3. **Segmentasyon** (`segmentation.py`): özellikler standartlaştırılıp k-means uygulanır; küme sayısı silhouette skoruyla 3–6 arasından seçilir.
+4. **Birliktelik kuralları** (`association.py`): Apriori kütüphane kullanılmadan yazıldı; fatura sepetleri üzerinden support, confidence ve lift hesaplanır.
+5. **Mevcut müşteri önerisi:** `skor = 0,6 × benzer ürünler + 0,4 × kendi segmentindeki popülerlik`; müşterinin zaten aldığı ürünler önerilmez.
+6. **Yeni müşteri önerisi (soğuk başlangıç):** söylenen kategorilere en yakın segment kosinüs benzerliğiyle bulunur, o segmentte popüler ürünler sıralanır. Kategori, beden ve bütçe filtredir; çok az ürün kalırsa darboğaz olan kriter gevşetilir ve müşteriye söylenir. Renk filtre değil skor artırıcıdır. İstenen renkteki ürün bütçeyi en fazla %25 aşıyorsa elenmez, uyarıyla gösterilir. Rengi bilinmeyen ürünler önerilmez.
+7. **Paket önerisi:** Apriori kurallarından, seçilen kategoriyle birlikte alınan diğer kategoriler lift değerine göre listelenir.
+8. **Klasik istatistik** (`istatistik.py`): ay etkili doğrusal ciro regresyonu, segmentlerin harcama farkı için ANOVA ve Kruskal-Wallis, segment ile bölge ilişkisi için ki-kare ve Cramér's V.
 
-1. **Temizleme** (`data_loader.py`): geçersiz tutarları atar, eksik kategoriyi `description` metninden türetir, eksik renk/bedeni `NOT CAPTURED` yapar. "Ürün" = kategori + renk (örn. `SHIRTS | NAVY`).
-2. **Özellikler** (`features.py`): her müşteri için *recency* (son alışverişten bu yana gün), *frequency* (fatura sayısı), *monetary* (toplam harcama) ve harcamanın kategorilere dağılımı.
-3. **Segmentasyon** (`segmentation.py`): özellikler standartlaştırılır, k-means çalışır; k değeri **silhouette skoru** ile seçilir (3–6 arası).
-4. **Birliktelik kuralları** (`association.py`): Apriori elle yazıldı. *support, confidence, lift* hesaplanır.
-5. **Mevcut müşteri**: `skor = 0.6 × benzer ürünler + 0.4 × kendi segmentindeki popülerlik`; zaten aldığı ürünler önerilmez.
-6. **Yeni müşteri (soğuk başlangıç)**: söylediği kategorilere en çok benzeyen segment bulunur (kosinüs benzerliği), o segmentte popüler ürünler sıralanır.
-   - Kategori, beden ve bütçe **filtredir**; çok az ürün kalırsa, darboğaz olan kriter gevşetilir ve bu müşteriye **söylenir**.
-   - Renk **skor artırıcıdır** (uyan ürünler en üste çıkar).
-7. **Değerlendirme** (`evaluate.py`): tarihin %80'ine kadar eğit, sonrasını tahmin et. *hit_rate@5* ve *precision@5*; popülerlik, segment popülerliği, benzer ürün ve hibrit yöntem karşılaştırılır.
+## Sonuçlar
 
-## Test case'ler
+Segmentasyon: k = 6, silhouette 0,243.
 
-`tests/` klasöründeki testler, analiz dokümanındaki kabul kriterlerinin bir kısmını otomatik doğrular:
+Öneri kalitesi (tarihin %80'i ile eğitim, kalanı test; hit_rate@5):
 
-| Test | Doğruladığı kriter |
+| Durum | Yöntem | hit_rate@5 |
+|---|---|---|
+| Mevcut müşteri | Genel popülerlik | 0,377 |
+| | Benzer ürün | 0,383 |
+| | Hibrit | 0,379 |
+| Yeni müşteri | Kategori popülerliği | 0,386 |
+| | Segment tabanlı | **0,434** |
+
+Yeni müşteride segment bilgisi öneri isabetini artırıyor. Mevcut müşteride yöntemler arasındaki fark hata payı içinde kalıyor; bu veride popüler ürünler güçlü bir referans.
+
+Klasik istatistik:
+- Ciro regresyonu (59 ay, 2020 Nisan ayında veri yok): R² 0,537; ciro ayda yaklaşık 1,95 milyon birim artıyor (p = 0,0001). Son 6 ayı tahmin hatası %26,3 (MAPE), yani tahmin gücü sınırlı.
+- ANOVA / Kruskal-Wallis: segmentler harcamada belirgin ayrışıyor (eta² = 0,56). Segmentler harcamayla kurulduğu için bu beklenen bir sonuç.
+- Ki-kare: segment ile bölge arasında ilişki var ama küçük (Cramér's V = 0,125).
+
+## Testler
+
+`python -m pytest` ile çalışan 35 otomatik test var:
+
+| Dosya | Kapsam |
 |---|---|
-| `test_data_loader.py` | Temizleme sonrası geçersiz tutar/eksik değer kalmaz; eksik sütunda anlaşılır hata |
-| `test_association.py` | Support/confidence/lift elle hesaplanan değerlerle eşleşir |
-| `test_recommender.py` | Her müşteri tek segmente atanır; mevcut müşteriye sahip olduğu ürün önerilmez; yeni müşteriye **her zaman** öneri döner; öneriler yalnızca katalogdan gelir; bütçe/kategori kısıtı uygulanır; Türkçe mesaj doğru ayrıştırılır; anahtarsız yedek mod çalışır |
-| `test_evaluate_and_bot.py` | Zaman ayırmada sızıntı yok; metrikler hesaplanır; bot uçtan uca çalışır |
+| `test_data_loader.py` | Temizleme, eksik sütun hatası, çok yıllı dosya birleştirme, kategori/renk/beden çıkarma |
+| `test_association.py` | Support, confidence ve lift değerleri elle hesaplananlarla eşleşiyor |
+| `test_recommender.py` | Segment atama, sahip olunan ürünün önerilmemesi, yeni müşteriye her zaman öneri, filtreler ve kriter gevşetme, rengi bilinmeyen ürünlerin elenmesi, bütçe toleransı, paket önerisi, Türkçe ayrıştırma, anahtarsız yedek mod |
+| `test_evaluate_and_bot.py` | Zaman ayırmada sızıntı yok, metrikler, botun uçtan uca çalışması, çıkış kısayolları |
+| `test_cache.py` | Model önbelleği |
+| `test_istatistik.py` | Regresyon eğimi ve mevsim etkisi, eksik ay, ANOVA ve ki-kare çıktıları |
 
-## Raporda tartışabileceğin sınırlamalar
+## Sınırlamalar
 
-- Sentetik veride yapılan denemeler yalnızca kodun çalıştığını gösterir; bilimsel sonuç değildir.
-- Yeni müşteri için segment tahmini, yalnızca söylenen kategorilere dayanır (kaba bir tahmindir). Gerçek veride segment tabanlı yöntemin "kategori popülerliği" yöntemini geçip geçmediğini `evaluate` ile ölç; geçmiyorsa bunu dürüstçe yaz.
-- Çoğu müşterinin tek alışverişi olduğu için "mevcut müşteri" değerlendirmesinde yeterli örnek çıkmayabilir.
-- LLM yanılabilir ve API maliyeti vardır; bu yüzden ürün seçimini LLM'e bırakmadık.
+- Ürün kodu ön eklerinin bir kısmı tahmini eşlemedir (yukarıda belirtildi); tişört, kazak ve şort ile ilgili sonuçlar bundan etkilenebilir.
+- Yeni müşteri değerlendirmesinde müşterinin tercihi olarak ilk faturasındaki kategoriler kullanıldı; gerçek bir müşteri isteğini daha dağınık ifade eder.
+- Segmentler zevkten çok alışveriş sıklığı ve harcama düzeyine göre ayrışıyor; iki segment çok küçük.
+- Ciro tahmini yalnızca trend ve ay etkisini içerir, kampanya gibi etkenleri bilmez.
+- LLM bileşeni gerçek API anahtarıyla sistematik olarak test edilmedi; kural tabanlı yedek mod test edildi.
 
 ## Klasör yapısı
 
 ```
-config.py            ayarlar ve sabitler
-main.py              komut satırı (generate-data / analyze / evaluate / chat)
-src/                 data_loader, synthetic_data, features, segmentation, association,
-                     recommender, llm, bot, pipeline, evaluate
-tests/               pytest testleri
-data/raw/            CSV buraya (git'e girmez)
-outputs/             grafikler ve tablolar (git'e girmez)
+config.py              ayarlar ve sabitler (kategori listesi, ürün kodu eşlemesi)
+main.py                komutlar: generate-data, analyze, evaluate, stats, chat
+inspect_unmapped.py    kategorisi belirlenemeyen ürün kodlarını inceleme aracı
+src/                   data_loader, features, segmentation, association, recommender,
+                       llm, bot, ui, pipeline, evaluate, istatistik, cache, synthetic_data
+tests/                 pytest testleri
+data/raw/              CSV dosyaları (git'e girmez)
+outputs/               grafikler ve tablolar (git'e girmez)
 ```
