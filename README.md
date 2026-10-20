@@ -1,5 +1,7 @@
 # Giyim Mağazası Müşteri–Ürün Eşleştirme Botu
 
+#BU PROJE TASLAKTIR, ÇOĞU AI İLE YAPILMIŞTIR DÜZENLENECEKTİR
+
 İş Zekası ve Veri Madenciliği dersi dönem projesi.
 
 Bir erkek giyim mağazasının 2018–2022 satış verisini analiz eden ve **yeni müşterilere ürün öneren** bir bot geliştirdik. Bot, müşterinin Türkçe yazdığı isteği anlar (ör. "lacivert gömlek, M beden, bütçem 1500"), mevcut müşterilerin alışverişlerinden öğrendiği kalıplara göre ürün önerir ve nedenini açıklar.
