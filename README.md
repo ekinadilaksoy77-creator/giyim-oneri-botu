@@ -1,6 +1,6 @@
 # Giyim Mağazası Müşteri–Ürün Eşleştirme Botu
 
-#BU PROJE TASLAKTIR, ÇOĞU AI İLE YAPILMIŞTIR DÜZENLENECEKTİR
+# BU PROJE TASLAKTIR, ÇOĞU AI İLE YAPILMIŞTIR DÜZENLENECEKTİR
 
 İş Zekası ve Veri Madenciliği dersi dönem projesi.
 
