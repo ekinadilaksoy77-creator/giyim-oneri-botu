@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Veri ve çıktılar (büyük dosyalar repoya girmesin)
+data/raw/*.csv
+data/raw/*.zip
+data/processed/*
+outputs/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!outputs/.gitkeep
