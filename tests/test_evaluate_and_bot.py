@@ -34,3 +34,17 @@ def test_exit_shortcuts():
     for w in ["çık", "ÇIK", "Çıkış", "q", "EXIT", " quit "]:
         assert is_exit(w), w
     assert not is_exit("çıkış yapmayan gömlek arıyorum")
+
+
+def test_paired_bootstrap_detects_real_difference_and_ignores_noise():
+    import numpy as np
+    from src.evaluate import bootstrap_ci, paired_bootstrap
+    rng = np.random.default_rng(1)
+    a = (rng.random(3000) < 0.50)
+    same = paired_bootstrap(a, a.copy())
+    assert same["fark"] == 0 and not same["anlamli"]
+    b = (rng.random(3000) < 0.35)                                 # gerçekten daha kötü bir yöntem
+    diff = paired_bootstrap(a, b)
+    assert diff["anlamli"] and diff["ci_alt"] > 0
+    lo, hi = bootstrap_ci(a.astype(float))
+    assert lo < a.mean() < hi

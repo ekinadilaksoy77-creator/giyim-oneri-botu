@@ -4,6 +4,7 @@
   python main.py analyze           # temizleme raporu, EDA grafikleri, segmentler, kurallar
   python main.py evaluate          # öneri kalitesini ölç (zamana göre ayırma)
   python main.py stats             # klasik istatistik: ciro regresyonu, ANOVA, ki-kare
+  python main.py predict           # müşteri tekrar gelir mi? (lojistik regresyon + rastgele orman)
   python main.py chat              # eşleştirme botunu başlat
 """
 from __future__ import annotations
@@ -72,6 +73,9 @@ def cmd_analyze(args):
     seg = art.seg
     seg.profiles.to_csv(out / "segmentler.csv", encoding="utf-8-sig")
     art.rules.to_csv(out / "birliktelik_kurallari.csv", index=False, encoding="utf-8-sig")
+    from src import gorsel
+    info = gorsel.all_plots(art.features, seg, out)
+    print(f"Segment grafikleri yazıldı (PCA iki bileşeni varyansın %{info['pca_aciklanan_varyans'] * 100:.0f}'ini açıklıyor).")
     print(f"\nSeçilen küme sayısı k={seg.k}  (silhouette: {seg.silhouette_by_k or 'k elle verildi'})")
     print(seg.profiles[["musteri_sayisi", "recency_days", "frequency", "monetary", "isim"]].to_string())
     print("\nEn güçlü 15 birliktelik kuralı:")
@@ -146,6 +150,38 @@ def cmd_stats(args):
     print(f"\nÇıktılar: {out}")
 
 
+def cmd_predict(args):
+    from src import tekrar_gelme
+    df, _ = _load(args.data)
+    print(f"Model kuruluyor (son {args.horizon} gün tahmin edilecek; büyük veride birkaç dakika sürebilir)...")
+    res = tekrar_gelme.train_and_evaluate(df, horizon_days=args.horizon)
+    if "not" in res:
+        print(res["not"])
+        return
+    out = config.OUTPUT_DIR
+    out.mkdir(parents=True, exist_ok=True)
+    o = res["ozet"]
+    print(f"\nKesim tarihi: {o['kesim_tarihi']} | eğitim: {o['n_egitim']:,} | test: {o['n_test']:,}")
+    print(f"Kesimden sonraki {o['ufuk_gun']} günde geri gelen müşteri oranı: %{o['geri_gelme_orani'] * 100:.1f}")
+    print("\nModel karşılaştırması (test seti):")
+    for key, name in [("referans", "Referans (sadece son alışveriş)"), ("lojistik_regresyon", "Lojistik regresyon"),
+                      ("rastgele_orman", "Rastgele orman")]:
+        m = res[key]
+        print(f"  {name:34s} ROC-AUC={m['roc_auc']:.3f}  PR-AUC={m['pr_auc']:.3f}  kesinlik={m['kesinlik']:.3f}  duyarlılık={m['duyarlilik']:.3f}")
+    print("\nEn önemli özellikler (rastgele orman):")
+    print(res["onem"].head(8).round(4).to_string())
+    res["onem"].round(5).to_csv(out / "tekrar_gelme_ozellik_onemi.csv", encoding="utf-8-sig")
+    fig, ax = plt.subplots(figsize=(5.5, 5))
+    for name, (fpr, tpr, _) in res["roc_egrileri"].items():
+        ax.plot(fpr, tpr, label=name)
+    ax.plot([0, 1], [0, 1], ":", color="gray", label="Tesadüf")
+    ax.set_xlabel("Yanlış pozitif oranı"); ax.set_ylabel("Doğru pozitif oranı"); ax.set_title("ROC eğrisi: müşteri geri gelir mi?")
+    ax.legend(fontsize=8); fig.tight_layout(); fig.savefig(out / "tekrar_gelme_roc.png", dpi=130); plt.close(fig)
+    (out / "tekrar_gelme_ozeti.json").write_text(json.dumps(
+        {k: v for k, v in res.items() if k not in ("onem", "roc_egrileri")}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\nÇıktılar: {out}")
+
+
 def cmd_chat(args):
     from src import cache
     from src.bot import StyleBot
@@ -170,6 +206,7 @@ def main():
     a = sub.add_parser("analyze"); a.add_argument("--min-support", type=float, default=0.002); a.set_defaults(fn=cmd_analyze)
     e = sub.add_parser("evaluate"); e.add_argument("-k", type=int, default=config.DEFAULT_TOP_K); e.set_defaults(fn=cmd_evaluate)
     st = sub.add_parser("stats"); st.set_defaults(fn=cmd_stats)
+    pr = sub.add_parser("predict"); pr.add_argument("--horizon", type=int, default=180); pr.set_defaults(fn=cmd_predict)
     c = sub.add_parser("chat"); c.add_argument("--rebuild", action="store_true", help="Kayıtlı modeli yok say, yeniden eğit"); c.set_defaults(fn=cmd_chat)
     args = p.parse_args()
     args.fn(args)
