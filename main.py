@@ -92,6 +92,16 @@ def cmd_evaluate(args):
     print(json.dumps(res, ensure_ascii=False, indent=2))
 
 
+def cmd_parser(args):
+    from src.parser_testi import run
+    res = run()
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    (config.OUTPUT_DIR / "ayristirici_dogrulugu.json").write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"{res['cumle_sayisi']} cümlede doğruluk: {res['dogruluk']}  (tüm alanlar doğru: {res['tum_alanlar_dogru']})")
+    for e in res["hatalar"]:
+        print(f"  HATA [{e['alan']}] '{e['cumle']}' -> beklenen {e['beklenen']}, bulunan {e['bulunan']}")
+
+
 def cmd_stats(args):
     from src import cache, istatistik as ist
     from src.features import build_customer_features
@@ -205,6 +215,7 @@ def main():
     g = sub.add_parser("generate-data"); g.add_argument("--users", type=int, default=6000); g.set_defaults(fn=cmd_generate)
     a = sub.add_parser("analyze"); a.add_argument("--min-support", type=float, default=0.002); a.set_defaults(fn=cmd_analyze)
     e = sub.add_parser("evaluate"); e.add_argument("-k", type=int, default=config.DEFAULT_TOP_K); e.set_defaults(fn=cmd_evaluate)
+    sub.add_parser("parser").set_defaults(fn=cmd_parser)
     st = sub.add_parser("stats"); st.set_defaults(fn=cmd_stats)
     pr = sub.add_parser("predict"); pr.add_argument("--horizon", type=int, default=180); pr.set_defaults(fn=cmd_predict)
     c = sub.add_parser("chat"); c.add_argument("--rebuild", action="store_true", help="Kayıtlı modeli yok say, yeniden eğit"); c.set_defaults(fn=cmd_chat)

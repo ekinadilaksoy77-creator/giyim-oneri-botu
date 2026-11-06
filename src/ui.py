@@ -63,6 +63,9 @@ def render(resp: Response, show_explanation: bool = True) -> None:
         parts.append(Text(f"⚠ {n}", style="yellow"))
     if resp.explanation and show_explanation:
         parts.append(Panel(resp.explanation, title="Danışman notu", border_style="green", box=box.ROUNDED))
+    if resp.bundle:
+        lines = [f"• {config.CATEGORY_TR.get(b.category, b.category).capitalize()} - {b.colour}: {b.reasons[0]}" for b in resp.bundle]
+        parts.append(Panel("\n".join(lines), title="Yanına şunlar da gidebilir", border_style="magenta", box=box.ROUNDED))
     console.print(Panel(Group(*parts), title=resp.title or "Öneriler", border_style="cyan", box=box.ROUNDED))
 
 

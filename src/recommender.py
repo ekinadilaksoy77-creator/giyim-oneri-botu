@@ -73,6 +73,13 @@ class HybridRecommender:
         self.rules = rules
         self.cf_weight = cf_weight
 
+        # --- Mevsim etkisi: her ayda, her kategorinin payı / kategorinin yıl geneli payı ---
+        # 1'den büyük = o ay o kategori ortalamadan çok satıyor (örn. kazak kışın). Aşırı değerler 0.5-2 arasına kırpılır.
+        month_of = df_train["transaction_date"].dt.month
+        share = pd.crosstab(month_of, df_train["category"], normalize="index")
+        overall = df_train["category"].value_counts(normalize=True)
+        self.season = (share / overall.reindex(share.columns)).clip(0.5, 2.0)
+
         # --- Ürün kataloğu ---
         # Rengi bilinmeyen ("NOT CAPTURED") satırlar müşteriye gösterilecek bir ürün değildir: kataloğa girmez.
         known = df_train[df_train["colour"] != config.NOT_CAPTURED]
@@ -115,6 +122,19 @@ class HybridRecommender:
             self.seg_pop[s] = (np.asarray(m[idx].sum(axis=0)).ravel() / len(idx)) if len(idx) else np.zeros(len(self.item_ids))
 
     # ------------------------------------------------------------------ yardımcılar
+    def season_boost(self, month: int | None) -> np.ndarray:
+        """Her ürün için mevsim çarpanı. Ay verilmezse hepsi 1 (mevsim etkisi yok)."""
+        if month is None or month not in self.season.index:
+            return np.ones(len(self.items))
+        f = self.season.loc[month].reindex(self.items["category"].to_numpy()).fillna(1.0).to_numpy()
+        return 1 + config.SEASON_WEIGHT * (f - 1)
+
+    def _season_reason(self, boost: np.ndarray, p: int) -> list[str]:
+        if boost[p] < 1.1:
+            return []
+        cat = self.items.iloc[p]["category"]
+        return [f"Yılın bu döneminde {config.CATEGORY_TR.get(cat, cat)} satışları ortalamanın üzerinde."]
+
     def _make_rec(self, pos: int, score: float, reasons: list[str]) -> Recommendation:
         row = self.items.iloc[pos]
         return Recommendation(self.item_ids[pos], row["category"], row["colour"], float(row["price"]), float(score), reasons)
@@ -125,7 +145,8 @@ class HybridRecommender:
         return out[:k]
 
     # ------------------------------------------------------------------ mevcut müşteri
-    def recommend_existing(self, user_id: str, k: int = config.DEFAULT_TOP_K, cf_weight: float | None = None) -> RecommendationResult:
+    def recommend_existing(self, user_id: str, k: int = config.DEFAULT_TOP_K, cf_weight: float | None = None,
+                           month: int | None = None) -> RecommendationResult:
         if user_id not in self._user_pos:
             raise UnknownCustomerError(user_id)
         a = self.cf_weight if cf_weight is None else cf_weight
@@ -135,7 +156,8 @@ class HybridRecommender:
 
         cf = _norm(np.asarray(self.user_item[up] @ self.item_sim).ravel())
         sp = _norm(self.seg_pop.get(seg_id, self.global_pop))
-        score = a * cf + (1 - a) * sp
+        boost = self.season_boost(month)
+        score = (a * cf + (1 - a) * sp) * boost
         score[bought] = -np.inf                                    # zaten aldığı ürünü tekrar önermeyiz
 
         top = [p for p in np.argsort(-score)[:k] if np.isfinite(score[p])]
@@ -147,6 +169,7 @@ class HybridRecommender:
                 reasons.append(f"Daha önce aldığınız '{self._label(best)}' ile benzer alışveriş yapan müşteriler bunu da aldı.")
             if sp[p] > 0 and seg_id in self.seg_pop:
                 reasons.append(f"Sizinle aynı gruptaki müşterilerde bu ürünü alma oranı: %{self.seg_pop[seg_id][p] * 100:.1f}")
+            reasons += self._season_reason(boost, p)
             recs.append(self._make_rec(p, score[p], reasons))
         return RecommendationResult(recs, [], seg_id if seg_id >= 0 else None, self.seg.names.get(seg_id))
 
@@ -155,12 +178,15 @@ class HybridRecommender:
         return f"{config.CATEGORY_TR.get(row['category'], row['category'])} - {row['colour']}"
 
     # ------------------------------------------------------------------ yeni müşteri (soğuk başlangıç)
-    def recommend_new(self, prefs: Preferences, k: int = config.DEFAULT_TOP_K, use_segment: bool = True) -> RecommendationResult:
+    def recommend_new(self, prefs: Preferences, k: int = config.DEFAULT_TOP_K, use_segment: bool = True,
+                      month: int | None = None) -> RecommendationResult:
         seg_id = self.seg.assign_by_categories(prefs.categories) if (use_segment and prefs.categories) else None
         if seg_id is not None:
             base = _norm(self.seg_pop[seg_id]) + 0.3 * _norm(self.global_pop)
         else:
             base = _norm(self.global_pop)
+        boost = self.season_boost(month)
+        base = base * boost
 
         cats = self.items["category"].to_numpy()
         colours = self.items["colour"].to_numpy()
@@ -213,6 +239,7 @@ class HybridRecommender:
                 reasons.append(f"Benzer tercihleri olan müşteri grubunda ('{self.seg.names[seg_id]}') bu ürünü alma oranı: %{self.seg_pop[seg_id][p] * 100:.1f}")
             else:
                 reasons.append(f"Mağazamızın en çok tercih edilen ürünlerinden biri (tüm müşterilerde alma oranı: %{self.global_pop[p] * 100:.1f})")
+            reasons += self._season_reason(boost, p)
             if colour_match is not None and colour_match[p]:
                 reasons.append("İstediğiniz renk ailesine uyuyor.")
             if "bütçe" in active:

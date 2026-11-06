@@ -74,11 +74,14 @@ def evaluate(df: pd.DataFrame, k: int = config.DEFAULT_TOP_K, max_users: int = 2
     result["mevcut_musteri"] = {"n_musteri": len(users)}
     if users:
         relevant = {u: test_items[u] for u in users}
+        # Mevsim testi için: müşterinin test dönemindeki ilk alışverişinin ayı ("bugün hangi ay" bilgisi gibi)
+        visit_month = test.groupby("user_id")["transaction_date"].min().dt.month
         methods = {
             "populer": lambda u: rec.popular_items(k, exclude={rec.item_ids[p] for p in rec.user_item[rec._user_pos[u]].indices}),
             "segment_populer": lambda u: [r.item_id for r in rec.recommend_existing(u, k, cf_weight=0.0).recs],
             "benzer_urun": lambda u: [r.item_id for r in rec.recommend_existing(u, k, cf_weight=1.0).recs],
             "hibrit": lambda u: [r.item_id for r in rec.recommend_existing(u, k).recs],
+            "hibrit_mevsimli": lambda u: [r.item_id for r in rec.recommend_existing(u, k, month=int(visit_month[u])).recs],
         }
         hits = {name: _hits({u: fn(u) for u in users}, relevant, users) for name, fn in methods.items()}
         for name, h in hits.items():
@@ -88,6 +91,7 @@ def evaluate(df: pd.DataFrame, k: int = config.DEFAULT_TOP_K, max_users: int = 2
             "hibrit_vs_populer": paired_bootstrap(flags["hibrit"], flags["populer"]),
             "benzer_urun_vs_populer": paired_bootstrap(flags["benzer_urun"], flags["populer"]),
             "hibrit_vs_segment_populer": paired_bootstrap(flags["hibrit"], flags["segment_populer"]),
+            "mevsimli_vs_hibrit": paired_bootstrap(flags["hibrit_mevsimli"], flags["hibrit"]),
         }
 
     # ---- 2) Yeni müşteriler (soğuk başlangıç) ----------------------------------
@@ -99,7 +103,7 @@ def evaluate(df: pd.DataFrame, k: int = config.DEFAULT_TOP_K, max_users: int = 2
     result["yeni_musteri_uygun_toplam"] = int(len(eligible))
     if len(eligible) > max_cold:                      # büyük veride yavaşlamasın: rastgele örnekle
         eligible = rng.choice(eligible.to_numpy(), size=max_cold, replace=False)
-    cold_rel, cold_prefs = {}, {}
+    cold_rel, cold_prefs, cold_month = {}, {}, {}
     for u, g in new[new["user_id"].isin(set(eligible))].groupby("user_id"):
         g = g.sort_values("transaction_date")
         first_bill = g["bill_id"].iloc[0]
@@ -108,15 +112,19 @@ def evaluate(df: pd.DataFrame, k: int = config.DEFAULT_TOP_K, max_users: int = 2
         if rel:
             cold_rel[u] = rel
             cold_prefs[u] = Preferences(categories=sorted(set(first["category"])))
+            cold_month[u] = int(later["transaction_date"].min().month)
     result["yeni_musteri"] = {"n_musteri": len(cold_rel)}
     if len(cold_rel) >= 30:
         cu = list(cold_rel)
         base = {u: [r.item_id for r in rec.recommend_new(p, k, use_segment=False).recs] for u, p in cold_prefs.items()}
         seg = {u: [r.item_id for r in rec.recommend_new(p, k).recs] for u, p in cold_prefs.items()}
-        hb, hs = _hits(base, cold_rel, cu), _hits(seg, cold_rel, cu)
+        seas = {u: [r.item_id for r in rec.recommend_new(p, k, month=cold_month[u]).recs] for u, p in cold_prefs.items()}
+        hb, hs, hm = _hits(base, cold_rel, cu), _hits(seg, cold_rel, cu), _hits(seas, cold_rel, cu)
+        result["yeni_musteri"]["segment_tabanli_mevsimli"] = _score(hm, k)
         result["yeni_musteri"]["kategori_populer"] = _score(hb, k)
         result["yeni_musteri"]["segment_tabanli"] = _score(hs, k)
-        result["yeni_musteri"]["karsilastirma"] = {"segment_vs_kategori_populer": paired_bootstrap(hs > 0, hb > 0)}
+        result["yeni_musteri"]["karsilastirma"] = {"segment_vs_kategori_populer": paired_bootstrap(hs > 0, hb > 0),
+                                                       "mevsimli_vs_segment_tabanli": paired_bootstrap(hm > 0, hs > 0)}
     else:
         result["yeni_musteri"]["not"] = "Değerlendirme için yeterli yeni müşteri yok (en az 30 gerekir)."
     return result

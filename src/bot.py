@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
 import config
 from src.llm import LLMClient, tr_lower
@@ -43,6 +44,13 @@ def format_result(result: RecommendationResult) -> str:
     return "\n".join(lines)
 
 
+def format_bundle(bundle) -> str:
+    lines = ["Yanına şunlar da gidebilir:"]
+    for r in bundle:
+        lines.append(f"  - {config.CATEGORY_TR.get(r.category, r.category).capitalize()} - {r.colour}  ({r.reasons[0]})")
+    return "\n".join(lines)
+
+
 @dataclass
 class Response:
     """Botun cevabı: ya düz bir mesaj (text) ya da öneri listesi (result) + açıklama."""
@@ -50,6 +58,7 @@ class Response:
     result: RecommendationResult | None = None
     explanation: str = ""
     title: str = ""
+    bundle: list | None = None     # "yanına şunlar da gider" önerileri (Apriori kurallarından)
 
 
 class StyleBot:
@@ -57,13 +66,17 @@ class StyleBot:
         self.art = artifacts
         self.llm = llm or LLMClient()
         rec = artifacts.recommender
+        self.month = date.today().month       # mevsim etkisi için bugünün ayı (testlerde değiştirilebilir)
         self.known_colours = sorted({c for c in rec.items["colour"] if c != config.NOT_CAPTURED})
 
     def reply(self, message: str) -> str:
         r = self.respond(message)
         if r.result is None:
             return r.text
-        return format_result(r.result) + ("\n\n" + r.explanation if r.explanation else "")
+        out = format_result(r.result) + ("\n\n" + r.explanation if r.explanation else "")
+        if r.bundle:
+            out += "\n\n" + format_bundle(r.bundle)
+        return out
 
     def respond(self, message: str) -> Response:
         msg = message.strip()
@@ -74,7 +87,7 @@ class StyleBot:
         if m:
             uid = msg.split()[1]
             try:
-                result = rec.recommend_existing(uid)
+                result = rec.recommend_existing(uid, month=self.month)
             except UnknownCustomerError:
                 return Response(text=f"'{uid}' numaralı müşteri kayıtlarda yok. Yeni müşteri gibi devam etmek için ne aradığınızı yazın.")
             return Response(result=result, title=f"Müşteri {uid} için öneriler",
@@ -94,8 +107,11 @@ class StyleBot:
         prefs = self.llm.extract_preferences(msg, self.known_colours)
         if prefs.is_empty():
             return Response(text="Ne aradığınızı tam anlayamadım. " + HELP)
-        result = rec.recommend_new(prefs)
-        return Response(result=result, title="Size önerilenler", explanation=self.llm.explain(msg, result))
+        result = rec.recommend_new(prefs, month=self.month)
+        # Sepet tamamlama: en üstteki önerinin kategorisiyle birlikte sık alınan ürünler (varsa)
+        bundle = rec.bundle_for(result.recs[0].category, k=2) if result.recs else None
+        return Response(result=result, title="Size önerilenler", explanation=self.llm.explain(msg, result),
+                        bundle=bundle or None)
 
     def run(self) -> None:
         try:

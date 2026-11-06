@@ -10,7 +10,7 @@ from pathlib import Path
 import config
 from src.pipeline import Artifacts
 
-CACHE_VERSION = "2"        # model kodu değişirse bunu artır, eski önbellek geçersiz olur
+CACHE_VERSION = "3"        # model kodu değişirse bunu artır, eski önbellek geçersiz olur
 
 
 def cache_path() -> Path:

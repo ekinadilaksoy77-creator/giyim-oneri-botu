@@ -1,7 +1,5 @@
 # Giyim Mağazası Müşteri–Ürün Eşleştirme Botu
 
-# BU PROJE TASLAK AŞAMASINDADIR, ÇOĞU AI YARDIMI İLE YAPILMIŞTIR
-
 İş Zekası ve Veri Madenciliği dersi dönem projesi.
 
 Bir erkek giyim mağazasının 2018–2022 satış verisini analiz eden ve **yeni müşterilere ürün öneren** bir bot geliştirdik. Bot, müşterinin Türkçe yazdığı isteği anlar (ör. "lacivert gömlek, M beden, bütçem 1500"), mevcut müşterilerin alışverişlerinden öğrendiği kalıplara göre ürün önerir ve nedenini açıklar.
@@ -53,6 +51,7 @@ cp .env.example .env               # LLM için ANTHROPIC_API_KEY buraya yazılı
 python main.py analyze        # temizleme raporu, grafikler, segmentler (PCA, ısı haritası), Apriori kuralları -> outputs/
 python main.py evaluate       # öneri kalitesi (zamana göre ayırma) -> outputs/degerlendirme.json
 python main.py stats          # ciro regresyonu, ANOVA, ki-kare -> outputs/
+python main.py parser         # kural tabanlı Türkçe ayrıştırıcı kaç cümleyi doğru anlıyor? -> outputs/
 python main.py predict        # müşteri 180 gün içinde tekrar gelir mi? (lojistik regresyon + rastgele orman) -> outputs/
 python main.py chat           # sohbet botu (çıkış: çık, q veya Ctrl+C)
 python -m pytest              # testler
@@ -81,6 +80,9 @@ paket kazak                                       -> kazakla birlikte alınan ü
 8. **Klasik istatistik** (`istatistik.py`): ay etkili doğrusal ciro regresyonu, segmentlerin harcama farkı için ANOVA ve Kruskal-Wallis, segment ile bölge ilişkisi için ki-kare ve Cramér's V.
 9. **Tekrar gelme modeli** (`tekrar_gelme.py`): verinin son 180 günü tahmin edilir. Özellikler yalnızca kesim tarihinden önceki alışverişlerden hesaplanır (RFM, ortalama fatura tutarı, müşteri süresi, indirim, kategori payları), etiket kesimden sonra geri gelip gelmediğidir. Lojistik regresyon ve rastgele orman, yalnızca son alışveriş zamanını bilen basit bir referansla ROC-AUC ve PR-AUC üzerinden karşılaştırılır.
 10. **Güven aralıkları** (`evaluate.py`): hit_rate değerleri için %95 bootstrap güven aralığı ve yöntemler arasındaki farklar için eşleştirilmiş bootstrap testi hesaplanır; böylece iki yöntemin farkının tesadüf olup olmadığı görülür.
+11. **Mevsim etkisi** (`recommender.py`): her ayda her kategorinin payı, kategorinin yıl geneli payına bölünür (1'den büyükse o ay çok satılıyor demektir). Öneri skoru bu orana göre artırılır veya azaltılır; etki `SEASON_WEIGHT` ile ayarlanır (0 yaparsak kapanır). Etkisi `evaluate` çıktısında "mevsimli" satırlarıyla ölçülür.
+12. **Sepet tamamlama** (`bot.py`): yeni müşteriye öneri verilince, en üstteki ürünün kategorisiyle birlikte sık alınan ürünler Apriori kurallarından "yanına şunlar da gidebilir" diye eklenir (kural yoksa eklenmez).
+13. **Ayrıştırıcı doğruluğu** (`parser_testi.py`): LLM'i deneyemediğimiz için botun kullandığı kural tabanlı ayrıştırıcıyı 35 Türkçe cümlede kategori, renk, beden ve bütçe için ölçtük. Son 10 cümle bilerek zor seçildi ve ayrıştırıcıyı onlara göre ayarlamadık.
 
 ## Sonuçlar
 
@@ -118,7 +120,7 @@ Klasik istatistik:
 
 ## Testler
 
-`python -m pytest` ile çalışan 40 otomatik test var:
+`python -m pytest` ile çalışan 45 otomatik test var:
 
 | Dosya | Kapsam |
 |---|---|
@@ -126,6 +128,7 @@ Klasik istatistik:
 | `test_association.py` | Support, confidence ve lift değerleri elle hesaplananlarla eşleşiyor |
 | `test_recommender.py` | Segment atama, sahip olunan ürünün önerilmemesi, yeni müşteriye her zaman öneri, filtreler ve kriter gevşetme, rengi bilinmeyen ürünlerin elenmesi, bütçe toleransı, paket önerisi, Türkçe ayrıştırma, anahtarsız yedek mod |
 | `test_evaluate_and_bot.py` | Zaman ayırmada sızıntı yok, metrikler, bootstrap karşılaştırması, botun uçtan uca çalışması, çıkış kısayolları |
+| `test_yeni_ozellikler.py` | Mevsim çarpanı sınırları ve filtreleri bozmaması, ağırlık 0 iken aynı sonuç, botta sepet tamamlama, ayrıştırıcı raporu |
 | `test_tekrar_gelme.py` | Özellikler yalnızca geçmişten, etiket yalnızca gelecekten gelir; model öğrenilebilir bir kalıpta referanstan iyi; tek sınıf durumunda uyarı |
 | `test_gorsel.py` | Segment grafikleri üretiliyor |
 | `test_cache.py` | Model önbelleği |
