@@ -81,7 +81,7 @@ def evaluate(df: pd.DataFrame, k: int = config.DEFAULT_TOP_K, max_users: int = 2
             "segment_populer": lambda u: [r.item_id for r in rec.recommend_existing(u, k, cf_weight=0.0).recs],
             "benzer_urun": lambda u: [r.item_id for r in rec.recommend_existing(u, k, cf_weight=1.0).recs],
             "hibrit": lambda u: [r.item_id for r in rec.recommend_existing(u, k).recs],
-            "hibrit_mevsimli": lambda u: [r.item_id for r in rec.recommend_existing(u, k, month=int(visit_month[u])).recs],
+            "hibrit_mevsimli": lambda u: [r.item_id for r in rec.recommend_existing(u, k, month=int(visit_month[u]), season_weight=config.SEASON_TEST_WEIGHT).recs],
         }
         hits = {name: _hits({u: fn(u) for u in users}, relevant, users) for name, fn in methods.items()}
         for name, h in hits.items():
@@ -118,7 +118,7 @@ def evaluate(df: pd.DataFrame, k: int = config.DEFAULT_TOP_K, max_users: int = 2
         cu = list(cold_rel)
         base = {u: [r.item_id for r in rec.recommend_new(p, k, use_segment=False).recs] for u, p in cold_prefs.items()}
         seg = {u: [r.item_id for r in rec.recommend_new(p, k).recs] for u, p in cold_prefs.items()}
-        seas = {u: [r.item_id for r in rec.recommend_new(p, k, month=cold_month[u]).recs] for u, p in cold_prefs.items()}
+        seas = {u: [r.item_id for r in rec.recommend_new(p, k, month=cold_month[u], season_weight=config.SEASON_TEST_WEIGHT).recs] for u, p in cold_prefs.items()}
         hb, hs, hm = _hits(base, cold_rel, cu), _hits(seg, cold_rel, cu), _hits(seas, cold_rel, cu)
         result["yeni_musteri"]["segment_tabanli_mevsimli"] = _score(hm, k)
         result["yeni_musteri"]["kategori_populer"] = _score(hb, k)

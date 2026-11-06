@@ -44,7 +44,8 @@ NOT_CAPTURED = "NOT CAPTURED"
 DEFAULT_TOP_K = 5
 MIN_BUYERS_PER_ITEM = 3     # Çok az kişinin aldığı ürünleri kataloğa almayız (gürültü)
 BUDGET_TOLERANCE = 0.25    # İstenen renkteki ürün bütçeyi en fazla %25 aşabilir (uyarıyla gösterilir)
-SEASON_WEIGHT = 0.5         # Mevsim etkisinin gücü: 0 = kapalı, 1 = tam (kategori o ay ortalamanın 2 katı satılıyorsa skor 1.5 katına çıkar)
+SEASON_WEIGHT = 0.0         # Bot için mevsim etkisi KAPALI: gerçek veride isabeti artırmadı (evaluate sonucu). 0 = kapalı
+SEASON_TEST_WEIGHT = 0.5    # evaluate'in 'mevsimli' satırlarını ölçerken kullandığı güç (kategori o ay ortalamanın 2 katı satılıyorsa skor 1.5 katına çıkar)
 CF_WEIGHT = 0.6             # Hibrit skorda "benzer ürün" (collaborative filtering) ağırlığı
 
 # Ürün kodu ön eki -> kategori. Kodlu ürünlerde ("MSH ITMSH03378 Chiseled LS Green XL") kategori adı geçmediği için.

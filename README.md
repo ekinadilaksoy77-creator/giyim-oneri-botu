@@ -80,7 +80,7 @@ paket kazak                                       -> kazakla birlikte alınan ü
 8. **Klasik istatistik** (`istatistik.py`): ay etkili doğrusal ciro regresyonu, segmentlerin harcama farkı için ANOVA ve Kruskal-Wallis, segment ile bölge ilişkisi için ki-kare ve Cramér's V.
 9. **Tekrar gelme modeli** (`tekrar_gelme.py`): verinin son 180 günü tahmin edilir. Özellikler yalnızca kesim tarihinden önceki alışverişlerden hesaplanır (RFM, ortalama fatura tutarı, müşteri süresi, indirim, kategori payları), etiket kesimden sonra geri gelip gelmediğidir. Lojistik regresyon ve rastgele orman, yalnızca son alışveriş zamanını bilen basit bir referansla ROC-AUC ve PR-AUC üzerinden karşılaştırılır.
 10. **Güven aralıkları** (`evaluate.py`): hit_rate değerleri için %95 bootstrap güven aralığı ve yöntemler arasındaki farklar için eşleştirilmiş bootstrap testi hesaplanır; böylece iki yöntemin farkının tesadüf olup olmadığı görülür.
-11. **Mevsim etkisi** (`recommender.py`): her ayda her kategorinin payı, kategorinin yıl geneli payına bölünür (1'den büyükse o ay çok satılıyor demektir). Öneri skoru bu orana göre artırılır veya azaltılır; etki `SEASON_WEIGHT` ile ayarlanır (0 yaparsak kapanır). Etkisi `evaluate` çıktısında "mevsimli" satırlarıyla ölçülür.
+11. **Mevsim etkisi** (`recommender.py`): her ayda her kategorinin payı, kategorinin yıl geneli payına bölünür (1'den büyükse o ay çok satılıyor demektir) ve öneri skoru bu orana göre değiştirilebilir. Gerçek veride denedik ve isabeti artırmadı (aşağıdaki sonuçlara bakın); bu yüzden bot için kapalı (`SEASON_WEIGHT = 0.0`), ölçüm için kod duruyor.
 12. **Sepet tamamlama** (`bot.py`): yeni müşteriye öneri verilince, en üstteki ürünün kategorisiyle birlikte sık alınan ürünler Apriori kurallarından "yanına şunlar da gidebilir" diye eklenir (kural yoksa eklenmez).
 13. **Ayrıştırıcı doğruluğu** (`parser_testi.py`): LLM'i deneyemediğimiz için botun kullandığı kural tabanlı ayrıştırıcıyı 35 Türkçe cümlede kategori, renk, beden ve bütçe için ölçtük. Son 10 cümle bilerek zor seçildi ve ayrıştırıcıyı onlara göre ayarlamadık.
 
@@ -96,11 +96,14 @@ Segmentasyon: k = 6, silhouette 0,243.
 | | Segment popülerliği | 0,394 (0,373–0,417) |
 | | Benzer ürün | 0,419 (0,397–0,441) |
 | | Hibrit | 0,417 (0,394–0,439) |
+| | Hibrit + mevsim | 0,411 (0,390–0,435) |
 | Yeni müşteri (2.707 örnek) | Kategori popülerliği | 0,422 (0,403–0,440) |
 | | Segment tabanlı | 0,411 (0,392–0,430) |
+| | Segment tabanlı + mevsim | 0,406 (0,388–0,426) |
 
 - Mevcut müşteride hibrit, genel popülerliği 1,1 puan geçiyor ama fark anlamlı değil (güven aralığı −0,2 ile +2,5). Hibrit, segment popülerliğini 2,3 puan geçiyor ve bu fark anlamlı.
 - Yeni müşteride segment tabanlı yöntem, yalnızca kategori popülerliğinin 1,1 puan gerisinde kaldı ve bu küçük fark anlamlı (−1,8 ile −0,4). Yani segment bilgisi bu ölçümde isabeti artırmadı.
+- Mevsim etkisi iki durumda da isabeti artırmadı: kayıtlı müşteride −0,55 puan (−1,35 ile +0,25), yeni müşteride −0,44 puan (−0,92 ile +0,04); ikisi de anlamlı değil. Çarpanın yalnızca kategori düzeyinde olması, müşterilerin zaten kendi alışkanlıklarına yakın alması veya ürün karışımındaki mevsim farkının zayıf olması gibi nedenler olabilir, bunları ayrıca test etmedik. Bu yüzden bot için kapalı bıraktık.
 - Daha önceki bir ölçümde segment tabanlı yöntem 0,434 ile 0,386 gibi bir üstünlük göstermişti. Rengi bilinmeyen ürünleri öneri kataloğundan çıkardıktan sonra ölçümü yenilediğimizde bu üstünlük kayboldu; değişikliğin tek nedeninin bu olduğunu ayrıca test etmedik. Güncel ölçüm esas alınmalıdır.
 
 Tekrar gelme modeli (kesim 2022-07-04, sonraki 180 gün, geri gelen müşteri oranı %8,6; test: 60.000 müşteri):

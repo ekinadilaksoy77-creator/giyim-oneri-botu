@@ -122,12 +122,13 @@ class HybridRecommender:
             self.seg_pop[s] = (np.asarray(m[idx].sum(axis=0)).ravel() / len(idx)) if len(idx) else np.zeros(len(self.item_ids))
 
     # ------------------------------------------------------------------ yardımcılar
-    def season_boost(self, month: int | None) -> np.ndarray:
+    def season_boost(self, month: int | None, weight: float | None = None) -> np.ndarray:
         """Her ürün için mevsim çarpanı. Ay verilmezse hepsi 1 (mevsim etkisi yok)."""
-        if month is None or month not in self.season.index:
+        w = config.SEASON_WEIGHT if weight is None else weight
+        if month is None or w == 0 or month not in self.season.index:
             return np.ones(len(self.items))
         f = self.season.loc[month].reindex(self.items["category"].to_numpy()).fillna(1.0).to_numpy()
-        return 1 + config.SEASON_WEIGHT * (f - 1)
+        return 1 + w * (f - 1)
 
     def _season_reason(self, boost: np.ndarray, p: int) -> list[str]:
         if boost[p] < 1.1:
@@ -146,7 +147,7 @@ class HybridRecommender:
 
     # ------------------------------------------------------------------ mevcut müşteri
     def recommend_existing(self, user_id: str, k: int = config.DEFAULT_TOP_K, cf_weight: float | None = None,
-                           month: int | None = None) -> RecommendationResult:
+                           month: int | None = None, season_weight: float | None = None) -> RecommendationResult:
         if user_id not in self._user_pos:
             raise UnknownCustomerError(user_id)
         a = self.cf_weight if cf_weight is None else cf_weight
@@ -156,7 +157,7 @@ class HybridRecommender:
 
         cf = _norm(np.asarray(self.user_item[up] @ self.item_sim).ravel())
         sp = _norm(self.seg_pop.get(seg_id, self.global_pop))
-        boost = self.season_boost(month)
+        boost = self.season_boost(month, season_weight)
         score = (a * cf + (1 - a) * sp) * boost
         score[bought] = -np.inf                                    # zaten aldığı ürünü tekrar önermeyiz
 
@@ -179,13 +180,13 @@ class HybridRecommender:
 
     # ------------------------------------------------------------------ yeni müşteri (soğuk başlangıç)
     def recommend_new(self, prefs: Preferences, k: int = config.DEFAULT_TOP_K, use_segment: bool = True,
-                      month: int | None = None) -> RecommendationResult:
+                      month: int | None = None, season_weight: float | None = None) -> RecommendationResult:
         seg_id = self.seg.assign_by_categories(prefs.categories) if (use_segment and prefs.categories) else None
         if seg_id is not None:
             base = _norm(self.seg_pop[seg_id]) + 0.3 * _norm(self.global_pop)
         else:
             base = _norm(self.global_pop)
-        boost = self.season_boost(month)
+        boost = self.season_boost(month, season_weight)
         base = base * boost
 
         cats = self.items["category"].to_numpy()

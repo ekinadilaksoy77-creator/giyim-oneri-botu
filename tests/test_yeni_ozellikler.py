@@ -11,8 +11,9 @@ from src.recommender import Preferences
 def test_season_boost_is_neutral_without_month_and_bounded_with_month(artifacts):
     rec = artifacts.recommender
     assert np.all(rec.season_boost(None) == 1.0)
-    b = rec.season_boost(1)
-    w = config.SEASON_WEIGHT
+    assert np.all(rec.season_boost(1) == 1.0)               # bot varsayılanı: mevsim kapalı
+    w = config.SEASON_TEST_WEIGHT
+    b = rec.season_boost(1, weight=w)
     assert len(b) == len(rec.items)
     assert b.min() >= 1 - w * 0.5 - 1e-9 and b.max() <= 1 + w * 1.0 + 1e-9    # çarpan 0.5-2 arasına kırpılmıştı
 
@@ -21,11 +22,11 @@ def test_season_only_reorders_never_breaks_filters(artifacts):
     rec = artifacts.recommender
     prefs = Preferences(categories=["SHIRTS"], max_price=3000)
     for month in (1, 7):
-        res = rec.recommend_new(prefs, month=month)
+        res = rec.recommend_new(prefs, month=month, season_weight=config.SEASON_TEST_WEIGHT)
         assert res.recs and all(r.category == "SHIRTS" and r.price <= 3000 for r in res.recs)
     uid = rec.user_ids[0]
     owned = {rec.item_ids[p] for p in rec.user_item[rec._user_pos[uid]].indices}
-    assert not owned & {r.item_id for r in rec.recommend_existing(uid, month=3).recs}
+    assert not owned & {r.item_id for r in rec.recommend_existing(uid, month=3, season_weight=config.SEASON_TEST_WEIGHT).recs}
 
 
 def test_season_weight_zero_gives_same_result_as_no_season(artifacts, monkeypatch):
